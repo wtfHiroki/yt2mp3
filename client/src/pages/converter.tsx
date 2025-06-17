@@ -20,7 +20,8 @@ import {
   Layers,
   Zap,
   Shield,
-  RotateCcw
+  RotateCcw,
+  Clipboard
 } from "lucide-react";
 import type { Conversion } from "@shared/schema";
 
@@ -116,6 +117,25 @@ export default function ConverterPage() {
   const clearAllUrls = useCallback(() => {
     setUrls([""]);
   }, []);
+
+  const pasteFromClipboard = useCallback(async (index: number) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text.trim()) {
+        updateUrl(index, text.trim());
+        toast({
+          title: "Pasted URL",
+          description: "URL pasted from clipboard successfully",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Paste Failed",
+        description: "Unable to access clipboard. Please paste manually.",
+        variant: "destructive",
+      });
+    }
+  }, [updateUrl, toast]);
 
   const startConversion = useCallback(() => {
     const validUrls = urls.filter(url => url.trim());
@@ -306,6 +326,15 @@ export default function ConverterPage() {
                           className="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         />
                       </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => pasteFromClipboard(index)}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                        title="Paste from clipboard"
+                      >
+                        <Clipboard className="h-4 w-4" />
+                      </Button>
                       {urls.length > 1 && (
                         <Button
                           variant="ghost"
