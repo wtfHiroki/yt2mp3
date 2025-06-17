@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertConversionSchema, bulkConversionSchema } from "@shared/schema";
-import ytdl from "ytdl-core";
+import ytdl from "@distube/ytdl-core";
 import ffmpeg from "fluent-ffmpeg";
 import path from "path";
 import fs from "fs-extra";
@@ -132,7 +132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
       
       const validConversions = conversions.filter(
-        conv => conv && conv.status === "completed" && conv.filePath
+        (conv): conv is NonNullable<typeof conv> => conv !== undefined && conv.status === "completed" && conv.filePath !== null
       );
       
       if (validConversions.length === 0) {
@@ -146,9 +146,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       archive.pipe(res);
       
       for (const conversion of validConversions) {
-        const filePath = path.join(DOWNLOADS_DIR, conversion.filePath!);
-        if (await fs.pathExists(filePath)) {
-          archive.file(filePath, { name: conversion.fileName || "audio.mp3" });
+        if (conversion && conversion.filePath) {
+          const filePath = path.join(DOWNLOADS_DIR, conversion.filePath);
+          if (await fs.pathExists(filePath)) {
+            archive.file(filePath, { name: conversion.fileName || "audio.mp3" });
+          }
         }
       }
       
