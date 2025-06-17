@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,7 +34,8 @@ interface ConversionStats {
 }
 
 export default function ConverterPage() {
-  const [urls, setUrls] = useState<string[]>([""]);
+  const [urlsText, setUrlsText] = useState<string>("");
+  const [extractedUrls, setExtractedUrls] = useState<string[]>([]);
   const [selectedFiles, setSelectedFiles] = useState<Set<number>>(new Set());
   const { toast } = useToast();
 
@@ -71,12 +73,11 @@ export default function ConverterPage() {
       const response = await apiRequest("POST", "/api/conversions/bulk", { urls });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/conversions"] });
-      setUrls([""]);
       toast({
         title: "Conversions Started",
-        description: `Processing ${urls.filter(Boolean).length} videos`,
+        description: `Processing ${variables.length} videos`,
       });
     },
     onError: (error) => {
@@ -102,30 +103,42 @@ export default function ConverterPage() {
     },
   });
 
-  const addUrlField = useCallback(() => {
-    setUrls(prev => [...prev, ""]);
+  const extractUrlsFromText = useCallback((text: string): string[] => {
+    // Extract YouTube URLs using regex pattern
+    const youtubeRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/watch\?.*&v=)([a-zA-Z0-9_-]{11})/g;
+    const matches: string[] = [];
+    let match;
+    
+    while ((match = youtubeRegex.exec(text)) !== null) {
+      const fullUrl = match[0].startsWith('http') ? match[0] : `https://www.youtube.com/watch?v=${match[1]}`;
+      if (!matches.includes(fullUrl)) {
+        matches.push(fullUrl);
+      }
+    }
+    
+    return matches;
   }, []);
 
-  const removeUrlField = useCallback((index: number) => {
-    setUrls(prev => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const updateUrl = useCallback((index: number, value: string) => {
-    setUrls(prev => prev.map((url, i) => i === index ? value : url));
-  }, []);
+  const updateUrlsText = useCallback((value: string) => {
+    setUrlsText(value);
+    const urls = extractUrlsFromText(value);
+    setExtractedUrls(urls);
+  }, [extractUrlsFromText]);
 
   const clearAllUrls = useCallback(() => {
-    setUrls([""]);
+    setUrlsText("");
+    setExtractedUrls([]);
   }, []);
 
-  const pasteFromClipboard = useCallback(async (index: number) => {
+  const pasteFromClipboard = useCallback(async () => {
     try {
       const text = await navigator.clipboard.readText();
       if (text.trim()) {
-        updateUrl(index, text.trim());
+        updateUrlsText(text.trim());
+        const urls = extractUrlsFromText(text.trim());
         toast({
-          title: "Pasted URL",
-          description: "URL pasted from clipboard successfully",
+          title: "Pasted URLs",
+          description: `Found ${urls.length} YouTube URLs in clipboard`,
         });
       }
     } catch (error) {
@@ -135,25 +148,28 @@ export default function ConverterPage() {
         variant: "destructive",
       });
     }
-  }, [updateUrl, toast]);
+  }, [updateUrlsText, extractUrlsFromText, toast]);
 
   const startConversion = useCallback(() => {
-    const validUrls = urls.filter(url => url.trim());
-    if (validUrls.length === 0) {
+    if (extractedUrls.length === 0) {
       toast({
         title: "No URLs",
-        description: "Please add at least one YouTube URL",
+        description: "Please paste YouTube URLs in the text area",
         variant: "destructive",
       });
       return;
     }
 
-    if (validUrls.length === 1) {
-      createConversionMutation.mutate(validUrls[0]);
+    if (extractedUrls.length === 1) {
+      createConversionMutation.mutate(extractedUrls[0]);
     } else {
-      createBulkConversionMutation.mutate(validUrls);
+      createBulkConversionMutation.mutate(extractedUrls);
     }
-  }, [urls, createConversionMutation, createBulkConversionMutation, toast]);
+    
+    // Clear the input after starting conversion
+    setUrlsText("");
+    setExtractedUrls([]);
+  }, [extractedUrls, createConversionMutation, createBulkConversionMutation, toast]);
 
   const downloadFile = useCallback((id: number) => {
     window.open(`/api/download/${id}`, "_blank");
@@ -315,61 +331,50 @@ export default function ConverterPage() {
 
                 {/* URL Input Form */}
                 <div className="space-y-4 mb-6">
-                  {urls.map((url, index) => (
-                    <div key={index} className="flex items-center space-x-3 group">
-                      <div className="flex-1">
-                        <Input
-                          type="url"
-                          placeholder="https://www.youtube.com/watch?v=..."
-                          value={url}
-                          onChange={(e) => updateUrl(index, e.target.value)}
-                          className="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        />
+                  <div className="space-y-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      YouTube URLs
+                    </label>
+                    <Textarea
+                      placeholder="Paste YouTube URLs here... (separated by spaces, commas, or new lines)
+
+Example:
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://youtu.be/abc123
+Multiple links with any separators work!"
+                      value={urlsText}
+                      onChange={(e) => updateUrlsText(e.target.value)}
+                      className="min-h-[120px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                    />
+                    {extractedUrls.length > 0 && (
+                      <div className="text-sm text-green-600 bg-green-50 px-3 py-2 rounded-lg border border-green-200">
+                        Found {extractedUrls.length} YouTube URL{extractedUrls.length !== 1 ? 's' : ''} ready for conversion
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => pasteFromClipboard(index)}
-                        className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                        title="Paste from clipboard"
-                      >
-                        <Clipboard className="h-4 w-4" />
-                      </Button>
-                      {urls.length > 1 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeUrlField(index)}
-                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
 
                 {/* Action Buttons */}
                 <div className="flex flex-col sm:flex-row gap-3">
                   <Button
                     variant="outline"
-                    onClick={addUrlField}
+                    onClick={pasteFromClipboard}
                     className="flex items-center justify-center text-blue-600 bg-blue-50 border-blue-200 hover:bg-blue-100"
                   >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add More URLs
+                    <Clipboard className="h-4 w-4 mr-2" />
+                    Paste from Clipboard
                   </Button>
                   <Button
                     onClick={startConversion}
-                    disabled={createConversionMutation.isPending || createBulkConversionMutation.isPending}
-                    className="flex-1 sm:flex-none bg-blue-500 hover:bg-blue-600"
+                    disabled={createConversionMutation.isPending || createBulkConversionMutation.isPending || extractedUrls.length === 0}
+                    className="flex-1 sm:flex-none bg-blue-500 hover:bg-blue-600 disabled:opacity-50"
                   >
                     {(createConversionMutation.isPending || createBulkConversionMutation.isPending) ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
                       <Play className="h-4 w-4 mr-2" />
                     )}
-                    Start Conversion
+                    Convert {extractedUrls.length > 0 ? `${extractedUrls.length} Video${extractedUrls.length !== 1 ? 's' : ''}` : 'Videos'}
                   </Button>
                 </div>
               </CardContent>
